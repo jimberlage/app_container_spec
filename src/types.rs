@@ -32,23 +32,6 @@ impl ACIdentifier {
     }
 }
 
-pub struct ACName(String);
-
-impl ACName {
-    pub fn from_json(json: Json) -> TypeResult<ACName> {
-        match json {
-            Json::String(name) => {
-                if AC_NAME_REGEX.is_match(&name) {
-                    Ok(ACName(name))
-                } else {
-                    Err(String::from("Invalid AC Name"))
-                }
-            },
-            _ => Err(String::from("Invalid AC Name")),
-        }
-    }
-}
-
 pub enum ACKind {
     ImageManifest,
     PodManifest
@@ -67,6 +50,23 @@ impl ACKind {
                 }
             },
             _ => Err(String::from("Invalid AC Kind")),
+        }
+    }
+}
+
+pub struct ACName(String);
+
+impl ACName {
+    pub fn from_json(json: Json) -> TypeResult<ACName> {
+        match json {
+            Json::String(name) => {
+                if AC_NAME_REGEX.is_match(&name) {
+                    Ok(ACName(name))
+                } else {
+                    Err(String::from("Invalid AC Name"))
+                }
+            },
+            _ => Err(String::from("Invalid AC Name")),
         }
     }
 }
