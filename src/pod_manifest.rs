@@ -8,8 +8,8 @@ pub struct Annotation {
 }
 
 pub struct Image {
-    id: ImageId,
-    labels: Option<Vec<Json::Object>>,
+    id: ImageID,
+    labels: Option<Vec<Json>>,
     name: Option<ACIdentifier>,
 }
 
@@ -47,7 +47,7 @@ pub struct Volume {
 }
 
 pub struct PodManifest {
-    ac_kind: ACKind::PodManifest,
+    ac_kind: ACKind,
     ac_version: ACVersion,
     annotations: Option<Vec<Annotation>>,
     apps: Vec<App>,

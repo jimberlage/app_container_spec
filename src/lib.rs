@@ -3,6 +3,7 @@ extern crate chrono;
 extern crate lazy_static;
 extern crate regex;
 extern crate rustc_serialize;
+extern crate url;
 
 pub mod image_manifest;
 pub mod pod_manifest;
