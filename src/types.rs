@@ -11,6 +11,8 @@ lazy_static! {
     static ref IMAGE_ID_REGEX: Regex = Regex::new("^(?P<hash>[^-]+)-(?P<value>[0-9A-Fa-f]+)$").unwrap();
 }
 
+pub type ParseResult<T> = Result<T, Vec<String>>;
+
 pub type TypeResult<T> = Result<T, String>;
 
 pub struct ACIdentifier(String);
@@ -57,16 +59,31 @@ impl ACKind {
 pub struct ACName(String);
 
 impl ACName {
-    pub fn from_json(json: Json) -> TypeResult<ACName> {
+    fn error_path(path: Option<String>) -> String {
+        match path {
+            Some(path) => path,
+            None => String::from("AC Name"),
+        }
+    }
+
+    pub fn from_string(name: String, path: Option<String>) -> ParseResult<ACName> {
+        if AC_NAME_REGEX.is_match(&name) {
+            Ok(ACName(name))
+        } else {
+            let error = format!("{} must be a valid AC Name.
+https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::error_path(path));
+            Err(vec![error])
+        }
+    }
+
+    pub fn from_json(json: Json, path: Option<String>) -> ParseResult<ACName> {
         match json {
-            Json::String(name) => {
-                if AC_NAME_REGEX.is_match(&name) {
-                    Ok(ACName(name))
-                } else {
-                    Err(String::from("Invalid AC Name"))
-                }
+            Json::String(name) => ACName::from_string(name, path),
+            _ => {
+                let error = format!("{} must be a string.
+https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::error_path(path));
+                Err(vec![error])
             },
-            _ => Err(String::from("Invalid AC Name")),
         }
     }
 }
