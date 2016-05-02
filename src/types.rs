@@ -11,7 +11,25 @@ lazy_static! {
     static ref IMAGE_ID_REGEX: Regex = Regex::new("^(?P<hash>[^-]+)-(?P<value>[0-9A-Fa-f]+)$").unwrap();
 }
 
-pub type ParseResult<T> = Result<T, Vec<String>>;
+pub struct Errors(Vec<String>);
+
+impl Errors {
+    pub fn push(&mut self, error: String) {
+        self.0.push(error);
+    }
+
+    pub fn combine(&mut self, other: Errors) {
+        for error in other.0 {
+            self.0.push(error.clone());
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+pub type ParseResult<T> = Result<T, Errors>;
 
 pub type TypeResult<T> = Result<T, String>;
 
@@ -72,7 +90,7 @@ impl ACName {
         } else {
             let error = format!("{} must be a valid AC Name.
 https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::error_path(path));
-            Err(vec![error])
+            Err(Errors(vec![error]))
         }
     }
 
@@ -82,16 +100,16 @@ https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::er
             _ => {
                 let error = format!("{} must be a string.
 https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::error_path(path));
-                Err(vec![error])
+                Err(Errors(vec![error]))
             },
         }
     }
 }
 
 pub struct ACVersion {
-    major: u32,
-    minor: u32,
-    patch: u32,
+    major: u64,
+    minor: u64,
+    patch: u64,
 }
 
 impl ACVersion {
@@ -101,10 +119,10 @@ impl ACVersion {
                 match SEMVER_REGEX.captures(&version) {
                     Some(captures) => {
                         // Since we got here by matching the above regex, these can be unwrapped and
-                        // coerced to u32 safely.
-                        let major = captures.name("major").unwrap().parse::<u32>().unwrap();
-                        let minor = captures.name("minor").unwrap().parse::<u32>().unwrap();
-                        let patch = captures.name("patch").unwrap().parse::<u32>().unwrap();
+                        // coerced to u64 safely.
+                        let major = captures.name("major").unwrap().parse::<u64>().unwrap();
+                        let minor = captures.name("minor").unwrap().parse::<u64>().unwrap();
+                        let patch = captures.name("patch").unwrap().parse::<u64>().unwrap();
 
                         Ok(ACVersion { major: major, minor: minor, patch: patch })
                     },

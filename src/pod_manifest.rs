@@ -28,7 +28,7 @@ pub struct App {
 
 pub struct Port {
     name: ACName,
-    host_port: u32,
+    host_port: u64,
 }
 
 pub enum Kind {
@@ -37,13 +37,13 @@ pub enum Kind {
 }
 
 pub struct Volume {
-    gid: u32,
+    gid: u64,
     kind: Kind,
     mode: String,
     name: ACName,
     read_only: bool,
     source: Option<String>,
-    uid: u32,
+    uid: u64,
 }
 
 pub struct PodManifest {
