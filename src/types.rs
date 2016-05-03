@@ -1,6 +1,6 @@
 use chrono::{DateTime, FixedOffset};
 use regex::Regex;
-use rustc_serialize::json::Json;
+use rustc_serialize::json::{self, Json};
 
 lazy_static! {
     // Regex taken from https://github.com/appc/spec/blob/master/spec/types.md#ac-identifier-type
@@ -36,18 +36,23 @@ pub type TypeResult<T> = Result<T, String>;
 pub struct ACIdentifier(String);
 
 impl ACIdentifier {
-    pub fn from_string(identifier: String) -> TypeResult<ACIdentifier> {
-        if AC_IDENTIFIER_REGEX.is_match(&identifier) {
-            Ok(ACIdentifier(identifier))
+    fn parse_error(path: &String, message: &str) -> String {
+        format!("{} {}
+https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-identifier-type", path, message)
+    }
+
+    pub fn from_string(identifier: &String, path: &String) -> ParseResult<ACIdentifier> {
+        if AC_IDENTIFIER_REGEX.is_match(identifier) {
+            Ok(ACIdentifier((*identifier).clone()))
         } else {
-            Err(String::from("Invalid AC Identifier"))
+            Err(Errors(vec![ACIdentifier::parse_error(path, "has invalid formatting.")]))
         }
     }
 
-    pub fn from_json(json: Json) -> TypeResult<ACIdentifier> {
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<ACIdentifier> {
         match json {
-            Json::String(identifier) => ACIdentifier::from_string(identifier),
-            _ => Err(String::from("Invalid AC Identifier")),
+            &Json::String(ref identifier) => ACIdentifier::from_string(identifier, path),
+            _ => Err(Errors(vec![ACIdentifier::parse_error(path, "must be a string.")])),
         }
     }
 }
@@ -173,31 +178,49 @@ pub struct Isolator {
 }
 
 impl Isolator {
-    pub fn from_json(json: Json) -> TypeResult<Isolator> {
+    fn parse_error(path: &String, message: &str) -> String {
+        format!("{} {}
+https://github.com/appc/spec/blob/v0.7.4/spec/types.md#isolator-type", path, message)
+    }
+
+    fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<ACIdentifier> {
+        let new_path = format!("{}[\"name\"]", path);
+
+        // "name" must be present, a JSON string, and be in the AC Identifier format.
+        match obj.get("name") {
+            Some(&Json::String(ref name)) => ACIdentifier::from_string(name, &new_path),
+            Some(_) => Err(Errors(vec![Isolator::parse_error(&new_path, "must be a string.")])),
+            None => Err(Errors(vec![Isolator::parse_error(&new_path, "must be defined.")])),
+        }
+    }
+
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<Isolator> {
         match json {
-            Json::Object(obj) => {
+            &Json::Object(ref obj) => {
+                let mut errors = Errors(vec![]);
+                let mut name = None;
+                let mut value = None;
+
+                match Isolator::parse_name_field(obj, path) {
+                    Ok(n) => { name = Some(n); },
+                    Err(name_errors) => errors.combine(name_errors),
+                }
                 // "value" must be present, but may be any valid JSON.
                 match obj.get("value") {
-                    Some(value) => {
-                        // "name" must be present, a JSON string, and be in the AC Identifier
-                        // format.
-                        match obj.get("name") {
-                            Some(&Json::String(ref name)) => {
-                                match ACIdentifier::from_string(name.clone()) {
-                                    Ok(identifier) => Ok(Isolator {
-                                        name: identifier,
-                                        value: value.clone()
-                                    }),
-                                    _ => Err(String::from("Invalid Isolator")),
-                                }
-                            },
-                            _ => Err(String::from("Invalid Isolator")),
-                        }
+                    Some(v) => { value = Some(v.clone()); },
+                    None => {
+                        let new_path = format!("{}[\"value\"]", path);
+                        errors.push(Isolator::parse_error(&new_path, "must be defined."));
                     },
-                    None => Err(String::from("Invalid Isolator")),
+                };
+
+                if !errors.is_empty() {
+                    return Err(errors);
                 }
+
+                Ok(Isolator { name: name.unwrap(), value: value.unwrap() })
             },
-            _ => Err(String::from("Invalid Isolator")),
+            _ => Err(Errors(vec![Isolator::parse_error(path, "must be an object.")])),
         }
     }
 }

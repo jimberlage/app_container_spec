@@ -84,29 +84,25 @@ impl MountPoint {
         }
     }
 
-    pub fn from_json(json: Json, path: Option<String>) -> ParseResult<MountPoint> {
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<MountPoint> {
         let mut errors = Errors(vec![]);
-        let new_path = match path {
-            Some(path) => path,
-            None => String::from("mountPoint"),
-        };
 
         match json {
-            Json::Object(obj) => {
+            &Json::Object(ref obj) => {
                 let mut name = None;
-                let mut path = None;
+                let mut mp_path = None;
                 let mut read_only = None;
 
                 // Validate fields.
-                match parse_name_field(&obj, &new_path) {
+                match parse_name_field(obj, path) {
                     Ok(ac_name) => { name = Some(ac_name); },
                     Err(name_errors) => errors.combine(name_errors),
                 };
-                match MountPoint::parse_path_field(&obj, &new_path) {
-                    Ok(p) => { path = Some(p); },
+                match MountPoint::parse_path_field(obj, path) {
+                    Ok(p) => { mp_path = Some(p); },
                     Err(path_errors) => errors.combine(path_errors),
                 };
-                match MountPoint::parse_read_only_field(&obj, &new_path) {
+                match MountPoint::parse_read_only_field(obj, path) {
                     Ok(ro) => { read_only = Some(ro); },
                     Err(read_only_errors) => errors.combine(read_only_errors),
                 };
@@ -117,12 +113,12 @@ impl MountPoint {
 
                 Ok(MountPoint {
                     name: name.unwrap(),
-                    path: path.unwrap(),
+                    path: mp_path.unwrap(),
                     read_only: read_only.unwrap(),
                 })
             },
             _ => {
-                errors.push(parse_error(&new_path, "must be an object."));
+                errors.push(parse_error(path, "must be an object."));
                 Err(errors)
             },
         }
@@ -190,12 +186,8 @@ impl Port {
         }
     }
 
-    pub fn from_json(json: Json, path: Option<String>) -> ParseResult<Port> {
+    pub fn from_json(json: Json, path: String) -> ParseResult<Port> {
         let mut errors = Errors(vec![]);
-        let new_path = match path {
-            Some(path) => path,
-            None => String::from("Port"),
-        };
 
         match json {
             Json::Object(obj) => {
@@ -206,23 +198,23 @@ impl Port {
                 let mut socket_activated = None;
 
                 // Validate fields.
-                match Port::parse_count_field(&obj, &new_path) {
+                match Port::parse_count_field(&obj, &path) {
                     Ok(c) => { count = Some(c); },
                     Err(count_errors) => errors.combine(count_errors),
                 };
-                match parse_name_field(&obj, &new_path) {
+                match parse_name_field(&obj, &path) {
                     Ok(ac_name) => { name = Some(ac_name) },
                     Err(name_errors) => errors.combine(name_errors),
                 };
-                match Port::parse_port_field(&obj, &new_path) {
+                match Port::parse_port_field(&obj, &path) {
                     Ok(p) => { port = Some(p); },
                     Err(port_errors) => errors.combine(port_errors),
                 };
-                match Port::parse_protocol_field(&obj, &new_path) {
+                match Port::parse_protocol_field(&obj, &path) {
                     Ok(p) => { protocol = Some(p); },
                     Err(protocol_errors) => errors.combine(protocol_errors),
                 };
-                match Port::parse_socket_activated_field(&obj, &new_path) {
+                match Port::parse_socket_activated_field(&obj, &path) {
                     Ok(sa) => { socket_activated = Some(sa); },
                     Err(socket_activated_errors) => errors.combine(socket_activated_errors),
                 };
@@ -240,7 +232,7 @@ impl Port {
                 })
             },
             _ => {
-                errors.push(parse_error(&new_path, "must be an object."));
+                errors.push(parse_error(&path, "must be an object."));
                 Err(errors)
             },
         }
