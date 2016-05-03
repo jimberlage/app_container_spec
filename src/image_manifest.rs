@@ -42,9 +42,71 @@ pub enum EventHandlerName {
     PostStop,
 }
 
+impl EventHandlerName {
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<EventHandlerName> {
+        match json {
+            &Json::String(ref name) => {
+                if name == "pre-start" {
+                    Ok(EventHandlerName::PreStart)
+                } else if name == "post-stop" {
+                    Ok(EventHandlerName::PostStop)
+                } else {
+                    Err(Errors(vec![parse_error(path, "must be a valid event handler name.")]))
+                }
+            },
+            _ => Err(Errors(vec![parse_error(path, "must be a string.")]))
+        }
+    }
+}
+
 pub struct EventHandler {
     exec: Vec<String>,
     name: EventHandlerName,
+}
+
+impl EventHandler {
+    fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<EventHandlerName> {
+        let new_path = format!("{}[\"name\"]", path);
+
+        match obj.get("name") {
+            Some(value) => EventHandlerName::from_json(value, &new_path),
+            None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
+        }
+    }
+
+    // TODO: Write this.
+    fn parse_exec_field(json: &json::Object, path: &String) -> ParseResult<Vec<String>> {
+    }
+
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<EventHandler> {
+        let mut errors = Errors(vec![]);
+
+        match json {
+            &Json::Object(ref obj) => {
+                let mut name = None;
+                let mut exec = None;
+
+                match EventHandler::parse_name_field(obj, path) {
+                    Ok(n) => { name = Some(n); },
+                    Err(name_errors) => errors.combine(name_errors),
+                };
+                match EventHandler::parse_exec_field(obj, path) {
+                    Ok(e) => { exec = Some(e); },
+                    Err(exec_errors) => errors.combine(exec_errors),
+                };
+
+                if !errors.is_empty() {
+                    return Err(errors);
+                }
+
+                Ok(EventHandler { exec: exec.unwrap(), name: name.unwrap() })
+            },
+            _ => {
+                errors.push(parse_error(path, "must be an object."));
+                Err(errors)
+            },
+        }
+    }
 }
 
 fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<ACName> {
