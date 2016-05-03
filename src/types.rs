@@ -11,7 +11,7 @@ lazy_static! {
     static ref IMAGE_ID_REGEX: Regex = Regex::new("^(?P<hash>[^-]+)-(?P<value>[0-9A-Fa-f]+)$").unwrap();
 }
 
-pub struct Errors(Vec<String>);
+pub struct Errors(pub Vec<String>);
 
 impl Errors {
     pub fn push(&mut self, error: String) {

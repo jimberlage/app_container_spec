@@ -2,9 +2,9 @@ use rustc_serialize::json::{self, Json};
 use types::{ACIdentifier, ACKind, ACName, ACVersion, Errors, ImageID, Isolator, ParseResult, Timestamps, TypeResult};
 use url::Url;
 
-fn parse_error(message: &String) -> String {
-    format!("{}
-https://github.com/appc/spec/blob/v0.7.4/spec/aci.md#image-manifest-schema", message)
+fn parse_error(path: &String, message: &str) -> String {
+    format!("{} {}
+https://github.com/appc/spec/blob/v0.7.4/spec/aci.md#image-manifest-schema", path, message)
 }
 
 pub enum Annotation {
@@ -52,8 +52,8 @@ fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<ACName> {
 
     match obj.get("name") {
         Some(&Json::String(ref n)) => ACName::from_string((*n).clone(), Some(new_path)),
-        Some(_) => Err(Errors(vec![parse_error(&format!("{} must be a string.", new_path))])),
-        None => Err(Errors(vec![parse_error(&format!("{} must be defined.", new_path))])),
+        Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a string.")])),
+        None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
     }
 }
 
@@ -69,8 +69,8 @@ impl MountPoint {
 
         match obj.get("path") {
             Some(&Json::String(ref p)) => Ok((*p).clone()),
-            Some(_) => Err(Errors(vec![parse_error(&format!("{} must be a string.", new_path))])),
-            None => Err(Errors(vec![parse_error(&format!("{} must be defined.", new_path))])),
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a string.")])),
+            None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
         }
     }
 
@@ -79,14 +79,14 @@ impl MountPoint {
 
         match obj.get("readOnly") {
             Some(&Json::Boolean(ref ro)) => Ok((*ro).clone()),
-            Some(_) => Err(Errors(vec![parse_error(&format!("{} must be a boolean.", new_path))])),
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a boolean.")])),
             None => Ok(false),
         }
     }
 
     pub fn from_json(json: Json, path: Option<String>) -> ParseResult<MountPoint> {
         let mut errors = Errors(vec![]);
-        let error_path = match path {
+        let new_path = match path {
             Some(path) => path,
             None => String::from("mountPoint"),
         };
@@ -98,15 +98,15 @@ impl MountPoint {
                 let mut read_only = None;
 
                 // Validate fields.
-                match parse_name_field(&obj, &error_path) {
+                match parse_name_field(&obj, &new_path) {
                     Ok(ac_name) => { name = Some(ac_name); },
                     Err(name_errors) => errors.combine(name_errors),
                 };
-                match MountPoint::parse_path_field(&obj, &error_path) {
+                match MountPoint::parse_path_field(&obj, &new_path) {
                     Ok(p) => { path = Some(p); },
                     Err(path_errors) => errors.combine(path_errors),
                 };
-                match MountPoint::parse_read_only_field(&obj, &error_path) {
+                match MountPoint::parse_read_only_field(&obj, &new_path) {
                     Ok(ro) => { read_only = Some(ro); },
                     Err(read_only_errors) => errors.combine(read_only_errors),
                 };
@@ -122,7 +122,7 @@ impl MountPoint {
                 })
             },
             _ => {
-                errors.push(parse_error(&format!("{} must be an object.", error_path)));
+                errors.push(parse_error(&new_path, "must be an object."));
                 Err(errors)
             },
         }
@@ -144,21 +144,55 @@ impl Port {
         match obj.get("count") {
             Some(&Json::U64(ref c)) => {
                 if (*c) < 1 {
-                    Err(Errors(vec![parse_error(&format!("{} must be >= 1.", new_path))]))
+                    Err(Errors(vec![parse_error(&new_path, "must be >= 1.")]))
                 } else {
                     Ok((*c).clone())
                 }
             },
-            Some(_) => {
-                Err(Errors(vec![parse_error(&format!("{} must be a positive integer.", new_path))]))
-            },
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a positive integer.")])),
             None => Ok(1),
+        }
+    }
+
+    fn parse_port_field(obj: &json::Object, path: &String) -> ParseResult<u16> {
+        let new_path = format!("{}[\"port\"]", path);
+
+        match obj.get("port") {
+            Some(&Json::U64(ref p)) => {
+                if (*p) < 1 || (*p) > 65535 {
+                    Err(Errors(vec![parse_error(&new_path, "must be >= 1 and <= 65535.")]))
+                } else {
+                    Ok((*p).clone() as u16)
+                }
+            },
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a positive integer.")])),
+            None => Err(Errors(vec![parse_error(&new_path, "must be a defined.")])),
+        }
+    }
+
+    fn parse_protocol_field(obj: &json::Object, path: &String) -> ParseResult<String> {
+        let new_path = format!("{}[\"protocol\"]", path);
+
+        match obj.get("protocol") {
+            Some(&Json::String(ref p)) => Ok((*p).clone()),
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a string.")])),
+            None => Err(Errors(vec![parse_error(&new_path, "must be a defined.")])),
+        }
+    }
+
+    fn parse_socket_activated_field(obj: &json::Object, path: &String) -> ParseResult<bool> {
+        let new_path = format!("{}[\"socketActivated\"]", path);
+
+        match obj.get("socketActivated") {
+            Some(&Json::Boolean(ref sa)) => Ok(*sa),
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a boolean.")])),
+            None => Ok(false),
         }
     }
 
     pub fn from_json(json: Json, path: Option<String>) -> ParseResult<Port> {
         let mut errors = Errors(vec![]);
-        let error_path = match path {
+        let new_path = match path {
             Some(path) => path,
             None => String::from("Port"),
         };
@@ -172,17 +206,41 @@ impl Port {
                 let mut socket_activated = None;
 
                 // Validate fields.
-                match Port::parse_count_field(&obj, &error_path) {
+                match Port::parse_count_field(&obj, &new_path) {
                     Ok(c) => { count = Some(c); },
                     Err(count_errors) => errors.combine(count_errors),
                 };
-                match parse_name_field(&obj, &error_path) {
+                match parse_name_field(&obj, &new_path) {
                     Ok(ac_name) => { name = Some(ac_name) },
                     Err(name_errors) => errors.combine(name_errors),
                 };
+                match Port::parse_port_field(&obj, &new_path) {
+                    Ok(p) => { port = Some(p); },
+                    Err(port_errors) => errors.combine(port_errors),
+                };
+                match Port::parse_protocol_field(&obj, &new_path) {
+                    Ok(p) => { protocol = Some(p); },
+                    Err(protocol_errors) => errors.combine(protocol_errors),
+                };
+                match Port::parse_socket_activated_field(&obj, &new_path) {
+                    Ok(sa) => { socket_activated = Some(sa); },
+                    Err(socket_activated_errors) => errors.combine(socket_activated_errors),
+                };
+
+                if !errors.is_empty() {
+                    return Err(errors);
+                }
+
+                Ok(Port {
+                    count: count.unwrap(),
+                    name: name.unwrap(),
+                    port: port.unwrap(),
+                    protocol: protocol.unwrap(),
+                    socket_activated: socket_activated.unwrap(),
+                })
             },
             _ => {
-                errors.push(parse_error(&format!("{} must be an object.", error_path)));
+                errors.push(parse_error(&new_path, "must be an object."));
                 Err(errors)
             },
         }
