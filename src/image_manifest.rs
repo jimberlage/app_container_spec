@@ -203,64 +203,56 @@ pub struct MountPoint {
     read_only: bool,
 }
 
-impl MountPoint {
-    fn parse_path_field(obj: &json::Object, path: &String) -> ParseResult<String> {
-        let new_path = format!("{}[\"path\"]", path);
-
-        match obj.get("path") {
-            Some(&Json::String(ref p)) => Ok((*p).clone()),
-            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a string.")])),
-            None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
-        }
-    }
-
-    fn parse_read_only_field(obj: &json::Object, path: &String) -> ParseResult<bool> {
-        let new_path = format!("{}[\"readOnly\"]", path);
-
-        match obj.get("readOnly") {
-            Some(&Json::Boolean(ref ro)) => Ok((*ro).clone()),
-            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a boolean.")])),
-            None => Ok(false),
-        }
-    }
-
-    pub fn from_json(json: &Json, path: &String) -> ParseResult<MountPoint> {
-        let mut errors = Errors(vec![]);
-
+impl Parseable for MountPoint {
+    fn from_json(json: &Json) -> ParseResult<MountPoint> {
         match json {
             &Json::Object(ref obj) => {
+                let mut errors = BTreeMap::new();
                 let mut name = None;
-                let mut mp_path = None;
-                let mut read_only = None;
+                let mut path = None;
+                let mut read_only = false;
 
-                // Validate fields.
-                match parse_name_field(obj, path) {
-                    Ok(ac_name) => { name = Some(ac_name); },
-                    Err(name_errors) => errors.combine(name_errors),
+                match obj.get("name") {
+                    Some(name_json) => {
+                        match ACName::from_json(name_json) {
+                            Ok(n) => { name = Some(n); },
+                            Err(err) => { errors.insert(String::from("name"), err); },
+                        }
+                    },
+                    None => {
+                        errors.insert(String::from("name"), Errors::Node(vec![String::from("must be defined")]));
+                    },
                 };
-                match MountPoint::parse_path_field(obj, path) {
-                    Ok(p) => { mp_path = Some(p); },
-                    Err(path_errors) => errors.combine(path_errors),
+
+                match obj.get("path") {
+                    Some(path_json) => {
+                        match String::from_json(path_json) {
+                            Ok(p) => { path = Some(p); },
+                            Err(err) => { errors.insert(String::from("path"), err); },
+                        }
+                    },
+                    None => {
+                        errors.insert(String::from("path"), Errors::Node(vec![String::from("must be defined")]));
+                    },
                 };
-                match MountPoint::parse_read_only_field(obj, path) {
-                    Ok(ro) => { read_only = Some(ro); },
-                    Err(read_only_errors) => errors.combine(read_only_errors),
+
+                match obj.get("readOnly") {
+                    Some(&Json::Boolean(ref ro)) => { read_only = ro; },
+                    Some(_) => { errors.insert(String::from("readOnly"), Errors::Node(vec![String::from("must be a boolean")])); },
+                    None => {},
                 };
 
                 if errors.is_empty() {
                     Ok(MountPoint {
                         name: name.unwrap(),
-                        path: mp_path.unwrap(),
-                        read_only: read_only.unwrap(),
+                        path: path.unwrap(),
+                        read_only: read_only
                     })
                 } else {
-                    Err(errors)
+                    Err(Errors::Object(errors))
                 }
             },
-            _ => {
-                errors.push(parse_error(path, "must be an object."));
-                Err(errors)
-            },
+            _ => Err(Errors::Node(vec![String::from("must be an object")])),
         }
     }
 }
