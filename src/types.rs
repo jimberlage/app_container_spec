@@ -1,6 +1,8 @@
 use chrono::{DateTime, FixedOffset};
 use regex::Regex;
-use rustc_serialize::json::{self, Json};
+use rustc_serialize::json::Json;
+use std::collections::BTreeMap;
+use util::{Errors, Parseable, ParseResult, StringWrapper};
 
 lazy_static! {
     // Regex taken from https://github.com/appc/spec/blob/master/spec/types.md#ac-identifier-type
@@ -11,48 +13,14 @@ lazy_static! {
     static ref IMAGE_ID_REGEX: Regex = Regex::new("^(?P<hash>[^-]+)-(?P<value>[0-9A-Fa-f]+)$").unwrap();
 }
 
-pub struct Errors(pub Vec<String>);
-
-impl Errors {
-    pub fn push(&mut self, error: String) {
-        self.0.push(error);
-    }
-
-    pub fn combine(&mut self, other: Errors) {
-        for error in other.0 {
-            self.0.push(error.clone());
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-pub type ParseResult<T> = Result<T, Errors>;
-
-pub type TypeResult<T> = Result<T, String>;
-
 pub struct ACIdentifier(String);
 
-impl ACIdentifier {
-    fn parse_error(path: &String, message: &str) -> String {
-        format!("{} {}
-https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-identifier-type", path, message)
-    }
-
-    pub fn from_string(identifier: &String, path: &String) -> ParseResult<ACIdentifier> {
-        if AC_IDENTIFIER_REGEX.is_match(identifier) {
-            Ok(ACIdentifier((*identifier).clone()))
+impl StringWrapper for ACIdentifier {
+    fn from_string(s: &String) -> ParseResult<ACIdentifier> {
+        if AC_IDENTIFIER_REGEX.is_match(s) {
+            Ok(ACIdentifier((*s).clone()))
         } else {
-            Err(Errors(vec![ACIdentifier::parse_error(path, "has invalid formatting.")]))
-        }
-    }
-
-    pub fn from_json(json: &Json, path: &String) -> ParseResult<ACIdentifier> {
-        match json {
-            &Json::String(ref identifier) => ACIdentifier::from_string(identifier, path),
-            _ => Err(Errors(vec![ACIdentifier::parse_error(path, "must be a string.")])),
+            Err(Errors::Node(vec![String::from("has invalid formatting")]))
         }
     }
 }
@@ -62,51 +30,26 @@ pub enum ACKind {
     PodManifest
 }
 
-impl ACKind {
-    pub fn from_json(json: Json) -> TypeResult<ACKind> {
-        match json {
-            Json::String(kind) => {
-                if kind == "ImageManifest" {
-                    Ok(ACKind::ImageManifest)
-                } else if kind == "PodManifest" {
-                    Ok(ACKind::PodManifest)
-                } else {
-                    Err(String::from("Invalid AC Kind"))
-                }
-            },
-            _ => Err(String::from("Invalid AC Kind")),
+impl StringWrapper for ACKind {
+    fn from_string(s: &String) -> ParseResult<ACKind> {
+        if s == "ImageManifest" {
+            Ok(ACKind::ImageManifest)
+        } else if s == "PodManifest" {
+            Ok(ACKind::PodManifest)
+        } else {
+            Err(Errors::Node(vec![String::from("must be one of \"ImageManifest\" or \"PodManifest\"")]))
         }
     }
 }
 
 pub struct ACName(String);
 
-impl ACName {
-    fn error_path(path: Option<String>) -> String {
-        match path {
-            Some(path) => path,
-            None => String::from("AC Name"),
-        }
-    }
-
-    pub fn from_string(name: String, path: Option<String>) -> ParseResult<ACName> {
-        if AC_NAME_REGEX.is_match(&name) {
-            Ok(ACName(name))
+impl StringWrapper for ACName {
+    fn from_string(s: &String) -> ParseResult<ACName> {
+        if AC_NAME_REGEX.is_match(s) {
+            Ok(ACName((*s).clone()))
         } else {
-            let error = format!("{} must be a valid AC Name.
-https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::error_path(path));
-            Err(Errors(vec![error]))
-        }
-    }
-
-    pub fn from_json(json: Json, path: Option<String>) -> ParseResult<ACName> {
-        match json {
-            Json::String(name) => ACName::from_string(name, path),
-            _ => {
-                let error = format!("{} must be a string.
-https://github.com/appc/spec/blob/v0.7.4/spec/types.md#ac-name-type", ACName::error_path(path));
-                Err(Errors(vec![error]))
-            },
+            Err(Errors::Node(vec![String::from("must be a valid AC Name")]))
         }
     }
 }
@@ -117,24 +60,19 @@ pub struct ACVersion {
     patch: u64,
 }
 
-impl ACVersion {
-    pub fn from_json(json: Json) -> TypeResult<ACVersion> {
-        match json {
-            Json::String(version) => {
-                match SEMVER_REGEX.captures(&version) {
-                    Some(captures) => {
-                        // Since we got here by matching the above regex, these can be unwrapped and
-                        // coerced to u64 safely.
-                        let major = captures.name("major").unwrap().parse::<u64>().unwrap();
-                        let minor = captures.name("minor").unwrap().parse::<u64>().unwrap();
-                        let patch = captures.name("patch").unwrap().parse::<u64>().unwrap();
+impl StringWrapper for ACVersion {
+    fn from_string(s: &String) -> ParseResult<ACVersion> {
+        match SEMVER_REGEX.captures(s) {
+            Some(captures) => {
+                // Since we got here by matching the above regex, these can be unwrapped and
+                // coerced to u64 safely.
+                let major = captures.name("major").unwrap().parse::<u64>().unwrap();
+                let minor = captures.name("minor").unwrap().parse::<u64>().unwrap();
+                let patch = captures.name("patch").unwrap().parse::<u64>().unwrap();
 
-                        Ok(ACVersion { major: major, minor: minor, patch: patch })
-                    },
-                    None => Err(String::from("Invalid AC Version")),
-                }
+                Ok(ACVersion { major: major, minor: minor, patch: patch })
             },
-            _ => Err(String::from("Invalid AC Version")),
+            None => Err(Errors::Node(vec![String::from("must be a valid AC Version")])),
         }
     }
 }
@@ -148,26 +86,20 @@ pub struct ImageID {
     value: String
 }
 
-impl ImageID {
-    pub fn from_json(json: Json) -> TypeResult<ImageID> {
-        match json {
-            Json::String(image_id) => {
-                match IMAGE_ID_REGEX.captures(&image_id) {
-                    Some(captures) => {
-                        let hash = captures.name("hash").unwrap();
-                        if hash == "sha512" {
-                            Ok(ImageID {
-                                hash: HashAlgorithm::SHA512,
-                                value: String::from(captures.name("value").unwrap())
-                            })
-                        } else {
-                            Err(String::from("Invalid Image ID"))
-                        }
-                    },
-                    None => Err(String::from("Invalid Image ID")),
+impl StringWrapper for ImageID {
+    fn from_string(s: &String) -> ParseResult<ImageID> {
+        match IMAGE_ID_REGEX.captures(s) {
+            Some(captures) => {
+                if captures.name("hash").unwrap() == "sha512" {
+                    Ok(ImageID {
+                        hash: HashAlgorithm::SHA512,
+                        value: String::from(captures.name("value").unwrap())
+                    })
+                } else {
+                    Err(Errors::Node(vec![String::from("must be a valid Image ID (invalid hash algorithm)")]))
                 }
             },
-            _ => Err(String::from("Invalid Image ID")),
+            None => Err(Errors::Node(vec![String::from("must be a valid Image ID")])),
         }
     }
 }
@@ -177,66 +109,51 @@ pub struct Isolator {
     value: Json,
 }
 
-impl Isolator {
-    fn parse_error(path: &String, message: &str) -> String {
-        format!("{} {}
-https://github.com/appc/spec/blob/v0.7.4/spec/types.md#isolator-type", path, message)
-    }
-
-    fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<ACIdentifier> {
-        let new_path = format!("{}[\"name\"]", path);
-
-        // "name" must be present, a JSON string, and be in the AC Identifier format.
-        match obj.get("name") {
-            Some(&Json::String(ref name)) => ACIdentifier::from_string(name, &new_path),
-            Some(_) => Err(Errors(vec![Isolator::parse_error(&new_path, "must be a string.")])),
-            None => Err(Errors(vec![Isolator::parse_error(&new_path, "must be defined.")])),
-        }
-    }
-
-    pub fn from_json(json: &Json, path: &String) -> ParseResult<Isolator> {
+impl Parseable for Isolator {
+    fn from_json(json: &Json) -> ParseResult<Isolator> {
         match json {
             &Json::Object(ref obj) => {
-                let mut errors = Errors(vec![]);
+                let mut errors = BTreeMap::new();
                 let mut name = None;
                 let mut value = None;
 
-                match Isolator::parse_name_field(obj, path) {
-                    Ok(n) => { name = Some(n); },
-                    Err(name_errors) => errors.combine(name_errors),
-                }
-                // "value" must be present, but may be any valid JSON.
-                match obj.get("value") {
-                    Some(v) => { value = Some(v.clone()); },
+                match obj.get("name") {
+                    Some(json) => {
+                        match ACIdentifier::from_json(json) {
+                            Ok(n) => { name = Some(n); },
+                            Err(err) => { errors.insert(String::from("name"), err); },
+                        };
+                    },
                     None => {
-                        let new_path = format!("{}[\"value\"]", path);
-                        errors.push(Isolator::parse_error(&new_path, "must be defined."));
+                        errors.insert(String::from("name"), Errors::Node(vec![String::from("must be defined.")]));
                     },
                 };
 
-                if !errors.is_empty() {
-                    return Err(errors);
-                }
+                match obj.get("value") {
+                    Some(json) => { value = Some(json.clone()); },
+                    None => {
+                        errors.insert(String::from("value"), Errors::Node(vec![String::from("must be defined.")]));
+                    },
+                };
 
-                Ok(Isolator { name: name.unwrap(), value: value.unwrap() })
+                if errors.is_empty() {
+                    Ok(Isolator { name: name.unwrap(), value: value.unwrap() })
+                } else {
+                    Err(Errors::Object(errors))
+                }
             },
-            _ => Err(Errors(vec![Isolator::parse_error(path, "must be an object.")])),
+            _ => Err(Errors::Node(vec![String::from("must be an object")])),
         }
     }
 }
 
 pub struct Timestamps(DateTime<FixedOffset>);
 
-impl Timestamps {
-    pub fn from_json(json: Json) -> TypeResult<Timestamps> {
-        match json {
-            Json::String(timestamps) => {
-                match DateTime::parse_from_rfc3339(&timestamps) {
-                    Ok(time) => Ok(Timestamps(time)),
-                    Err(_) => Err(String::from("Invalid Timestamps")),
-                }
-            },
-            _ => Err(String::from("Invalid Timestamps")),
+impl StringWrapper for Timestamps {
+    fn from_string(s: &String) -> ParseResult<Timestamps> {
+        match DateTime::parse_from_rfc3339(s) {
+            Ok(time) => Ok(Timestamps(time)),
+            Err(_) => Err(Errors::Node(vec![String::from("must be a valid RFC3339 timestamp")])),
         }
     }
 }

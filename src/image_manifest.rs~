@@ -1,12 +1,21 @@
-use regex::Regex;
 use rustc_serialize::json::{self, Json};
-use std::collections::BTreeMap;
-use types::{ACIdentifier, ACKind, ACName, ACVersion, ImageID, Isolator, Timestamps};
+use types::{ACIdentifier, ACKind, ACName, ACVersion, Errors, ImageID, Isolator, ParseResult, Timestamps, TypeResult};
 use url::Url;
-use util::{self, Errors, Parseable, ParseResult, StringWrapper};
 
 lazy_static! {
     static ref ENVIRONMENT_VARIABLE_NAME_REGEX: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]*$").unwrap();
+}
+
+fn parse_error(path: &String, message: &str) -> String {
+    format!("{} {}
+https://github.com/appc/spec/blob/v0.7.4/spec/aci.md#image-manifest-schema", path, message)
+}
+
+fn string_from_json(json: &Json, path: &String) -> ParseResult<String> {
+    match json {
+        &Json::String(ref s) => Ok((*s).clone()),
+        _ => Err(Errors(vec![parse_error(path, "must be a string.")]))
+    }
 }
 
 pub enum Annotation {
@@ -34,12 +43,15 @@ pub enum Annotation {
 
 pub struct EnvironmentVariableName(String);
 
-impl StringWrapper for EnvironmentVariableName {
-    fn from_string(s: &String) -> ParseResult<EnvironmentVariableName> {
-        if ENVIRONMENT_VARIABLE_NAME_REGEX.is_match(s) {
-            Ok(EnvironmentVariableName((*s).clone()))
-        } else {
-            Err(Errors::Node(vec![String::from("has invalid formatting.")]))
+impl EnvironmentVariableName {
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<EnvironmentVariableName> {
+        match string_from_json(json, path) {
+            Ok(name) => if ENVIRONMENT_VARIABLE_NAME_REGEX.is_match(name) {
+                Ok(EnvironmentVariableName(name))
+            } else {
+                Err(Errors(vec![parse_error(path, "has invalid formatting.")]))
+            },
+            err => err
         }
     }
 }
@@ -49,45 +61,36 @@ pub struct EnvironmentVariable {
     value: String,
 }
 
-impl Parseable for EnvironmentVariable {
-    fn from_json(json: &Json) -> ParseResult<EnvironmentVariable> {
+impl EnvironmentVariable {
+    fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<EnvironmentVariableName> {
+        let new_path = format!("{}[\"name\"]", path);
+
+        match obj.get("name") {
+            Some(json) => EnvironmentVariableName::from_json(json, &new_path),
+            None => Err(Errors(vec![parse_error(&new_path, "must be defined.")]))
+        }
+    }
+
+    fn parse_value_field(obj: &json::Object, path: &String) -> ParseResult<String> {
+    }
+
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<EnvironmentVariable> {
+        let mut errors = Errors(vec![]);
+
         match json {
-            &Json::Object(ref obj) => {
-                let mut errors = BTreeMap::new();
+            &Json::Object(ref ev) => {
                 let mut name = None;
                 let mut value = None;
 
-                match obj.get("name") {
-                    Some(name_json) => {
-                        match EnvironmentVariableName::from_json(name_json) {
-                            Ok(n) => { name = Some(n); },
-                            Err(err) => { errors.insert(String::from("name"), err); },
-                        };
-                    },
-                    None => {
-                        errors.insert(String::from("name"), Errors::Node(vec![String::from("must be defined")]));
-                    },
-                };
-
-                match obj.get("value") {
-                    Some(value_json) => {
-                        match String::from_json(value_json) {
-                            Ok(v) => { value = Some(v); },
-                            Err(err) => { errors.insert(String::from("value"), err); },
-                        };
-                    },
-                    None => {
-                        errors.insert(String::from("value"), Errors::Node(vec![String::from("must be defined")]));
-                    },
-                }
-
-                if errors.is_empty() {
-                    Ok(EnvironmentVariable { name: name.unwrap(), value: value.unwrap() })
-                } else {
-                    Err(Errors::Object(errors))
+                match EnvironmentVariable::parse_name_field(ev, path) {
+                    Ok(n) => { name = Some(n); },
+                    Err(name_errors) => errors.combine(name_errors),
                 }
             },
-            _ => Err(Errors::Node(vec![String::from("must be an object")]))
+            _ => {
+                errors.push(parse_error(path, "must be an object."));
+                Err(errors)
+            },
         }
     }
 }
@@ -97,14 +100,19 @@ pub enum EventHandlerName {
     PostStop,
 }
 
-impl StringWrapper for EventHandlerName {
-    fn from_string(s: &String) -> ParseResult<EventHandlerName> {
-        if s == "pre-start" {
-            Ok(EventHandlerName::PreStart)
-        } else if s == "post-stop" {
-            Ok(EventHandlerName::PostStop)
-        } else {
-            Err(Errors::Node(vec![String::from("must be a valid event handler name.")]))
+impl EventHandlerName {
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<EventHandlerName> {
+        match json {
+            &Json::String(ref name) => {
+                if name == "pre-start" {
+                    Ok(EventHandlerName::PreStart)
+                } else if name == "post-stop" {
+                    Ok(EventHandlerName::PostStop)
+                } else {
+                    Err(Errors(vec![parse_error(path, "must be a valid event handler name.")]))
+                }
+            },
+            _ => Err(Errors(vec![parse_error(path, "must be a string.")]))
         }
     }
 }
@@ -115,74 +123,71 @@ pub struct EventHandler {
 }
 
 impl EventHandler {
-    fn exec_from_json(json: &Json) -> ParseResult<Vec<String>> {
-        match json {
-            &Json::Array(ref arr) => {
-                let mut result = vec![];
-                let mut errors = vec![];
+    fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<EventHandlerName> {
+        let new_path = format!("{}[\"name\"]", path);
+
+        match obj.get("name") {
+            Some(value) => EventHandlerName::from_json(value, &new_path),
+            None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
+        }
+    }
+
+    fn parse_exec_field(obj: &json::Object, path: &String) -> ParseResult<Vec<String>> {
+        let new_path = format!("{}[\"exec\"]", path);
+
+        match obj.get("exec") {
+            Some(&Json::Array(ref arr)) => {
+                let mut cmds = vec![];
+                let mut errors = Errors(vec![]);
 
                 for i in 0..arr.len() {
-                    let ref current_json = arr[i];
+                    let val_path = format!("{}[{}]", new_path, i);
+                    let ref json_cmd: Json = arr[i];
 
-                    match String::from_json(current_json) {
-                        Ok(cmd) => {
-                            errors.push(None);
-                            result.push(cmd);
-                        },
-                        Err(err) => { errors.push(Some(err)); },
-                    }
+                    match json_cmd {
+                        &Json::String(ref cmd) => cmds.push((*cmd).clone()),
+                        _ => errors.push(parse_error(&val_path, "must be a string.")),
+                    };
                 }
 
                 if errors.is_empty() {
-                    Ok(result)
+                    Ok(cmds)
                 } else {
-                    Err(Errors::Array(errors))
+                    Err(errors)
                 }
             },
-            _ => Err(Errors::Node(vec![String::from("must be an array")])),
+            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be an array.")])),
+            None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
         }
     }
-}
 
-impl Parseable for EventHandler {
-    fn from_json(json: &Json) -> ParseResult<EventHandler> {
+    pub fn from_json(json: &Json, path: &String) -> ParseResult<EventHandler> {
+        let mut errors = Errors(vec![]);
+
         match json {
             &Json::Object(ref obj) => {
-                let mut errors = BTreeMap::new();
                 let mut name = None;
                 let mut exec = None;
 
-                match obj.get("name") {
-                    Some(name_json) => {
-                        match EventHandlerName::from_json(name_json) {
-                            Ok(n) => { name = Some(n); },
-                            Err(err) => { errors.insert(String::from("name"), err); },
-                        };
-                    },
-                    None => {
-                        errors.insert(String::from("name"), Errors::Node(vec![String::from("must be defined")]));
-                    },
+                match EventHandler::parse_name_field(obj, path) {
+                    Ok(n) => { name = Some(n); },
+                    Err(name_errors) => errors.combine(name_errors),
                 };
-
-                match obj.get("exec") {
-                    Some(exec_json) => {
-                        match EventHandler::exec_from_json(exec_json) {
-                            Ok(e) => { exec = Some(e); },
-                            Err(err) => { errors.insert(String::from("exec"), err); },
-                        }
-                    },
-                    None => {
-                        errors.insert(String::from("exec"), Errors::Node(vec![String::from("must be defined")]));
-                    },
+                match EventHandler::parse_exec_field(obj, path) {
+                    Ok(e) => { exec = Some(e); },
+                    Err(exec_errors) => errors.combine(exec_errors),
                 };
 
                 if errors.is_empty() {
-                    Ok(EventHandler { name: name.unwrap(), exec: exec.unwrap() })
+                    Ok(EventHandler { exec: exec.unwrap(), name: name.unwrap() })
                 } else {
-                    Err(Errors::Object(errors))
+                    Err(errors)
                 }
             },
-            _ => Err(Errors::Node(vec![String::from("must be an object")])),
+            _ => {
+                errors.push(parse_error(path, "must be an object."));
+                Err(errors)
+            },
         }
     }
 }
