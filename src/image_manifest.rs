@@ -1,9 +1,9 @@
 use regex::Regex;
-use rustc_serialize::json::{self, Json};
+use rustc_serialize::json::Json;
 use std::collections::BTreeMap;
 use types::{ACIdentifier, ACKind, ACName, ACVersion, ImageID, Isolator, Timestamps};
 use url::Url;
-use util::{self, Errors, Parseable, ParseResult, StringWrapper};
+use util::{Errors, Parseable, ParseResult, StringWrapper};
 
 lazy_static! {
     static ref ENVIRONMENT_VARIABLE_NAME_REGEX: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]*$").unwrap();
@@ -87,7 +87,7 @@ impl Parseable for EnvironmentVariable {
                     Err(Errors::Object(errors))
                 }
             },
-            _ => Err(Errors::Node(vec![String::from("must be an object")]))
+            _ => Err(Errors::Node(vec![String::from("must be an object")])),
         }
     }
 }
@@ -187,16 +187,6 @@ impl Parseable for EventHandler {
     }
 }
 
-fn parse_name_field(obj: &json::Object, path: &String) -> ParseResult<ACName> {
-    let new_path = format!("{}[\"name\"]", path);
-
-    match obj.get("name") {
-        Some(&Json::String(ref n)) => ACName::from_string((*n).clone(), Some(new_path)),
-        Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a string.")])),
-        None => Err(Errors(vec![parse_error(&new_path, "must be defined.")])),
-    }
-}
-
 pub struct MountPoint {
     name: ACName,
     path: String,
@@ -237,7 +227,7 @@ impl Parseable for MountPoint {
                 };
 
                 match obj.get("readOnly") {
-                    Some(&Json::Boolean(ref ro)) => { read_only = ro; },
+                    Some(&Json::Boolean(ref ro)) => { read_only = *ro; },
                     Some(_) => { errors.insert(String::from("readOnly"), Errors::Node(vec![String::from("must be a boolean")])); },
                     None => {},
                 };
@@ -265,108 +255,92 @@ pub struct Port {
     socket_activated: bool,
 }
 
-impl Port {
-    fn parse_count_field(obj: &json::Object, path: &String) -> ParseResult<u64> {
-        let new_path = format!("{}[\"count\"]", path);
-
-        match obj.get("count") {
-            Some(&Json::U64(ref c)) => {
-                if (*c) < 1 {
-                    Err(Errors(vec![parse_error(&new_path, "must be >= 1.")]))
-                } else {
-                    Ok((*c).clone())
-                }
-            },
-            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a positive integer.")])),
-            None => Ok(1),
-        }
-    }
-
-    fn parse_port_field(obj: &json::Object, path: &String) -> ParseResult<u16> {
-        let new_path = format!("{}[\"port\"]", path);
-
-        match obj.get("port") {
-            Some(&Json::U64(ref p)) => {
-                if (*p) < 1 || (*p) > 65535 {
-                    Err(Errors(vec![parse_error(&new_path, "must be >= 1 and <= 65535.")]))
-                } else {
-                    Ok((*p).clone() as u16)
-                }
-            },
-            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a positive integer.")])),
-            None => Err(Errors(vec![parse_error(&new_path, "must be a defined.")])),
-        }
-    }
-
-    fn parse_protocol_field(obj: &json::Object, path: &String) -> ParseResult<String> {
-        let new_path = format!("{}[\"protocol\"]", path);
-
-        match obj.get("protocol") {
-            Some(&Json::String(ref p)) => Ok((*p).clone()),
-            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a string.")])),
-            None => Err(Errors(vec![parse_error(&new_path, "must be a defined.")])),
-        }
-    }
-
-    fn parse_socket_activated_field(obj: &json::Object, path: &String) -> ParseResult<bool> {
-        let new_path = format!("{}[\"socketActivated\"]", path);
-
-        match obj.get("socketActivated") {
-            Some(&Json::Boolean(ref sa)) => Ok(*sa),
-            Some(_) => Err(Errors(vec![parse_error(&new_path, "must be a boolean.")])),
-            None => Ok(false),
-        }
-    }
-
-    pub fn from_json(json: Json, path: String) -> ParseResult<Port> {
-        let mut errors = Errors(vec![]);
-
+impl Parseable for Port {
+    fn from_json(json: &Json) -> ParseResult<Port> {
         match json {
-            Json::Object(obj) => {
-                let mut count = None;
+            &Json::Object(ref obj) => {
+                let mut errors = BTreeMap::new();
+                let mut count = 1;
                 let mut name = None;
                 let mut port = None;
                 let mut protocol = None;
-                let mut socket_activated = None;
+                let mut socket_activated = false;
 
-                // Validate fields.
-                match Port::parse_count_field(&obj, &path) {
-                    Ok(c) => { count = Some(c); },
-                    Err(count_errors) => errors.combine(count_errors),
+                match obj.get("count") {
+                    Some(&Json::U64(ref c)) => {
+                        if (*c) < 1 {
+                            errors.insert(String::from("count"), Errors::Node(vec![String::from("must be >= 1")]));
+                        } else {
+                            count = *c;
+                        }
+                    },
+                    Some(_) => {
+                        errors.insert(String::from("count"), Errors::Node(vec![String::from("must be a positive integer")]));
+                    },
+                    None => {},
                 };
-                match parse_name_field(&obj, &path) {
-                    Ok(ac_name) => { name = Some(ac_name) },
-                    Err(name_errors) => errors.combine(name_errors),
+
+                match obj.get("name") {
+                    Some(name_json) => {
+                        match ACName::from_json(name_json) {
+                            Ok(n) => { name = Some(n); },
+                            Err(err) => { errors.insert(String::from("name"), err); },
+                        }
+                    },
+                    None => {
+                        errors.insert(String::from("name"), Errors::Node(vec![String::from("must be defined")]));
+                    },
                 };
-                match Port::parse_port_field(&obj, &path) {
-                    Ok(p) => { port = Some(p); },
-                    Err(port_errors) => errors.combine(port_errors),
+
+                match obj.get("port") {
+                    Some(&Json::U64(ref p)) => {
+                        if (*p) < 1 || (*p) > 65535 {
+                            errors.insert(String::from("port"), Errors::Node(vec![String::from("must be >= 1 and <= 65535")]));
+                        } else {
+                            port = Some(*p as u16);
+                        }
+                    },
+                    Some(_) => {
+                        errors.insert(String::from("port"), Errors::Node(vec![String::from("must be a positive integer")]));
+                    },
+                    None => {
+                        errors.insert(String::from("port"), Errors::Node(vec![String::from("must be defined")]));
+                    },
                 };
-                match Port::parse_protocol_field(&obj, &path) {
-                    Ok(p) => { protocol = Some(p); },
-                    Err(protocol_errors) => errors.combine(protocol_errors),
+
+                match obj.get("protocol") {
+                    Some(protocol_json) => {
+                        match String::from_json(protocol_json) {
+                            Ok(p) => { protocol = Some(p); },
+                            Err(err) => { errors.insert(String::from("protocol"), err); },
+                        }
+                    },
+                    None => {
+                        errors.insert(String::from("protocol"), Errors::Node(vec![String::from("must be defined")]));
+                    },
                 };
-                match Port::parse_socket_activated_field(&obj, &path) {
-                    Ok(sa) => { socket_activated = Some(sa); },
-                    Err(socket_activated_errors) => errors.combine(socket_activated_errors),
+
+                match obj.get("socketActivated") {
+                    Some(&Json::Boolean(ref sa)) => { socket_activated = *sa; },
+                    Some(_) => {
+                        errors.insert(String::from("socketActivated"), Errors::Node(vec![String::from("must be a boolean")]));
+                    },
+                    None => {},
                 };
 
                 if errors.is_empty() {
                     Ok(Port {
-                        count: count.unwrap(),
+                        count: count,
                         name: name.unwrap(),
                         port: port.unwrap(),
                         protocol: protocol.unwrap(),
-                        socket_activated: socket_activated.unwrap(),
+                        socket_activated: socket_activated,
                     })
                 } else {
-                    Err(errors)
+                    Err(Errors::Object(errors))
                 }
             },
-            _ => {
-                errors.push(parse_error(&path, "must be an object."));
-                Err(errors)
-            },
+            _ => Err(Errors::Node(vec![String::from("must be an object")])),
         }
     }
 }
